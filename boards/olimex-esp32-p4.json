@@ -1,0 +1,36 @@
+{
+  "build": {
+    "core": "esp32",
+    "extra_flags": [
+      "-DBOARD_HAS_PSRAM"
+    ],
+    "f_cpu": "360000000L",
+    "f_flash": "80000000L",
+    "flash_mode": "qio",
+    "mcu": "esp32p4",
+    "variant": "esp32p4"
+  },
+  "arduino": {
+    "partitions": "default_8MB.csv"
+  },
+  "connectivity": [
+    "ethernet",
+    "wifi"
+  ],
+  "debug": {
+    "openocd_target": "esp32p4.cfg"
+  },
+  "frameworks": [
+    "arduino"
+  ],
+  "name": "Olimex ESP32-P4 DevKit",
+  "upload": {
+    "flash_size": "8MB",
+    "maximum_ram_size": 524288,
+    "maximum_size": 8388608,
+    "require_upload_port": true,
+    "speed": 921600
+  },
+  "url": "https://github.com/OLIMEX/ESP32-P4-DevKit",
+  "vendor": "Olimex Ltd"
+}

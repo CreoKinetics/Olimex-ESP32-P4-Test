@@ -56,6 +56,20 @@ void setup() {
   digitalWrite(OLED_RST, HIGH); delay(10);
   display.begin();
   display.fillScreen(0xFFFF);  // white fill test
+  // flash a series of colors
+  uint16_t colors[] = {0xF800, 0x07E0, 0x001F, 0xFFFF, 0x0000};
+  for (uint8_t i = 0; i < sizeof(colors)/2; i++) {
+    display.fillScreen(colors[i]);
+    delay(500);
+  }
+
+  // test text
+  display.fillScreen(0x0000);            // black background
+  display.setTextSize(2);
+  display.setTextColor(0xFFFF, 0x0000);  // white on black
+  display.setCursor(10, 10);
+  display.print("Hello P4!");
+
 
   // — Init PSRAM —
   if (psramFound()) {

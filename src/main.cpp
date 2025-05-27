@@ -4,6 +4,9 @@
 #include "SD_MMC.h"
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
+#include <SPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1351.h>
 
 extern "C" {
   #include "esp_psram.h"
@@ -17,12 +20,42 @@ extern "C" {
 #define ETH_POWER_PIN      51
 #define ETH_CLOCK_GPIO_IN  EMAC_CLK_EXT_IN
 
+// ——— WEB SERVER ———
 AsyncWebServer server(80);
+
+// ——— SPI / OLED PINS ———
+// PUEXT1
+#define OLED_MOSI  53
+#define OLED_CLK   4
+#define OLED_CS    5
+#define OLED_DC    7
+#define OLED_RST   8
+
+// ——— Adafruit SSD1351 instance ———
+Adafruit_SSD1351 display = Adafruit_SSD1351(
+  /* width */ 128,
+  /* height*/ 128,
+  /* spi */   &SPI,
+  /* cs */    OLED_CS,
+  /* dc */    OLED_DC,
+  /* rst */   OLED_RST
+);
+
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
   Serial.println("\n[Boot] ESP32-P4 Async Web Server Test");
+
+  // — Init SPI once for both displays —
+  SPI.begin(OLED_CLK, /* MISO */ -1, OLED_MOSI, OLED_CS);
+
+  // — Init & test Adafruit SSD1351 —
+  pinMode(OLED_RST, OUTPUT);
+  digitalWrite(OLED_RST, LOW);  delay(10);
+  digitalWrite(OLED_RST, HIGH); delay(10);
+  display.begin();
+  display.fillScreen(0xFFFF);  // white fill test
 
   // — Init PSRAM —
   if (psramFound()) {
@@ -48,7 +81,7 @@ void setup() {
     while (1) delay(500);
   }
 
-  // Wait for link up
+  // — Wait for link up —
   Serial.print("[ETH] waiting for link");
   while (!ETH.linkUp()) {
     Serial.print('.');
@@ -56,15 +89,13 @@ void setup() {
   }
   Serial.println(" OK");
 
-  // Wait for DHCP
+  // — Wait for DHCP —
   Serial.print("[ETH] DHCP");
   while (ETH.localIP() == INADDR_NONE) {
     Serial.print('.');
     delay(200);
   }
   Serial.println();
-
-  // Print network info
   Serial.printf("[ETH] IP: %s  Gateway: %s\n",
     ETH.localIP().toString().c_str(),
     ETH.gatewayIP().toString().c_str()
@@ -75,13 +106,10 @@ void setup() {
   Serial.println(ETH.fullDuplex() ? "FULL" : "HALF");
 
   // — Setup AsyncWebServer to serve /www/ from SD —
-  // All URLs under “/” map to files in /sdcard/www/, defaulting to index.html
   server.serveStatic("/", SD_MMC, "/www/").setDefaultFile("index.html");
-
   server.onNotFound([](AsyncWebServerRequest *req){
     req->send(404, "text/plain", "Not found");
   });
-
   server.begin();
   Serial.println("[HTTP] AsyncWebServer started");
 }

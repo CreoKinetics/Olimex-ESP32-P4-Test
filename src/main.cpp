@@ -1,18 +1,32 @@
 #include <Arduino.h>
-#include <ETH.h>
-#include "FS.h"
-#include "SD_MMC.h"
-#include <AsyncTCP.h>
-#include <ESPAsyncWebServer.h>
 #include <SPI.h>
+#include <SD_MMC.h>
+#include <ETH.h>
+#include <FS.h>
+#include <SPIFFS.h>
+
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
 
-extern "C" {
-  #include "esp_psram.h"
-}
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
 
-// ——— CONFIG ———
+#include "esp_task_wdt.h"
+
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 128
+
+#define SSD1351_BLACK   0x0000
+#define SSD1351_WHITE   0xFFFF
+
+// ——— SPI / OLED PINS ———
+#define OLED_MOSI  13
+#define OLED_CLK   14
+#define OLED_CS    15
+#define OLED_DC    16
+#define OLED_RST   17
+
+// ——— ETH CONFIG ———
 #define ETH_PHY_TYPE       ETH_PHY_TLK110
 #define ETH_ADDR           1
 #define ETH_MDC_PIN        31
@@ -20,114 +34,170 @@ extern "C" {
 #define ETH_POWER_PIN      51
 #define ETH_CLOCK_GPIO_IN  EMAC_CLK_EXT_IN
 
-// ——— WEB SERVER ———
+// Global state for display summary
+float flashSizeMB = 0;
+float spiffsUsedMB = 0;
+float spiffsTotalMB = 0;
+float psramSizeMB = 0;
+IPAddress ethIP;
+int ethSpeedMbps = 0;
+bool ethLinkUp = false;
+
+
+Adafruit_SSD1351 display = Adafruit_SSD1351(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, OLED_CS, OLED_DC, OLED_RST);
 AsyncWebServer server(80);
 
-// ——— SPI / OLED PINS ———
-// PUEXT1
-#define OLED_MOSI  53
-#define OLED_CLK   4
-#define OLED_CS    5
-#define OLED_DC    7
-#define OLED_RST   8
-
-// ——— Adafruit SSD1351 instance ———
-Adafruit_SSD1351 display = Adafruit_SSD1351(
-  /* width */ 128,
-  /* height*/ 128,
-  /* spi */   &SPI,
-  /* cs */    OLED_CS,
-  /* dc */    OLED_DC,
-  /* rst */   OLED_RST
-);
-
+void wait_for_serial_debug();
+void flash_init();
+void psram_init();
+void sdcard_init();
+void ethernet_init();
+void spi_init();
+void display_init();
+void webserver_init();
+void display_eth_status();
 
 void setup() {
   Serial.begin(115200);
-  delay(1000);
-  Serial.println("\n[Boot] ESP32-P4 Async Web Server Test");
 
-  // — Init SPI once for both displays —
-  SPI.begin(OLED_CLK, /* MISO */ -1, OLED_MOSI, OLED_CS);
+  esp_task_wdt_delete(NULL);  // Disable WDT for main task
 
-  // — Init & test Adafruit SSD1351 —
-  pinMode(OLED_RST, OUTPUT);
-  digitalWrite(OLED_RST, LOW);  delay(10);
-  digitalWrite(OLED_RST, HIGH); delay(10);
-  display.begin();
-  display.fillScreen(0xFFFF);  // white fill test
-  // flash a series of colors
-  uint16_t colors[] = {0xF800, 0x07E0, 0x001F, 0xFFFF, 0x0000};
-  for (uint8_t i = 0; i < sizeof(colors)/2; i++) {
-    display.fillScreen(colors[i]);
-    delay(500);
+  void wait_for_serial_debug();
+
+  Serial.println("[Boot] ESP32-P4 Async Web Server Test");
+
+  flash_init();
+  psram_init();
+  sdcard_init();
+  ethernet_init();
+  webserver_init();
+  spi_init();
+  display_init();
+}
+
+void loop() {
+  // Your loop code here
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+void wait_for_serial_debug() {
+  delay(5000); // Allow USB CDC to re-enumerate on Windows
+}
+
+void flash_init() {
+  Serial.println("[Flash] Init");
+  flashSizeMB = ESP.getFlashChipSize() / 1048576.0;
+
+  if (SPIFFS.begin(true)) {
+    Serial.println("✅ SPIFFS mounted");
+    spiffsUsedMB = SPIFFS.usedBytes() / 1048576.0;
+    spiffsTotalMB = SPIFFS.totalBytes() / 1048576.0;
+
+    File file = SPIFFS.open("/hello.txt", FILE_WRITE);
+    if (file) {
+      file.printf("Hello from P4 @ %d\n", millis());
+      file.close();
+      file = SPIFFS.open("/hello.txt");
+      if (file) {
+        Serial.print("📖 Content: ");
+        while (file.available()) Serial.write(file.read());
+        file.close();
+        Serial.println();
+      }
+    } else {
+      Serial.println("❌ Failed to write file");
+    }
+  } else {
+    Serial.println("❌ SPIFFS mount failed");
   }
+}
 
-  // test text
-  display.fillScreen(0x0000);            // black background
-  display.setTextSize(2);
-  display.setTextColor(0xFFFF, 0x0000);  // white on black
-  display.setCursor(10, 10);
-  display.print("Hello P4!");
+void psram_init() {
+  psramSizeMB = ESP.getPsramSize() / 1048576.0;
+  Serial.printf("[PSRAM] %.2f MB\n", psramSizeMB);
+}
 
 
-  // — Init PSRAM —
-  if (psramFound()) {
-    Serial.printf("[PSRAM] %u bytes\n", esp_psram_get_size());
-  }
-
-  // — Mount SD card —
+void sdcard_init() {
   Serial.print("[SD] begin… ");
   if (!SD_MMC.begin("/sdcard", true)) {
-    Serial.println("FAIL");
-    while (1) delay(500);
+    Serial.println("❌ Failed");
+  } else {
+    Serial.println("OK");
   }
-  Serial.println("OK");
+}
 
-  // — Start Ethernet —
+void ethernet_init() {
   Serial.println("[ETH] init…");
-  if (!ETH.begin(
-        ETH_PHY_TYPE, ETH_ADDR,
-        ETH_MDC_PIN, ETH_MDIO_PIN,
-        ETH_POWER_PIN, ETH_CLOCK_GPIO_IN
-      )) {
-    Serial.println("[ETH] init FAILED");
-    while (1) delay(500);
-  }
+  ETH.begin();
+  ETH.config(IPAddress(0,0,0,0), IPAddress(0,0,0,0), IPAddress(0,0,0,0));
+  ETH.setHostname("esp32p4_test");
 
-  // — Wait for link up —
-  Serial.print("[ETH] waiting for link");
-  while (!ETH.linkUp()) {
-    Serial.print('.');
-    delay(200);
-  }
-  Serial.println(" OK");
+  WiFi.onEvent([](WiFiEvent_t event) {
+    switch (event) {
+      case ARDUINO_EVENT_ETH_GOT_IP:
+        ethIP = ETH.localIP();
+        ethSpeedMbps = ETH.linkSpeed();
+        ethLinkUp = true;
+        Serial.printf("[ETH] IP: %s  Gateway: %s\n", ethIP.toString().c_str(), ETH.gatewayIP().toString().c_str());
+        Serial.printf("[ETH] Speed  : %d Mbps, Duplex: %s\n", ethSpeedMbps, ETH.fullDuplex() ? "FULL" : "HALF");
 
-  // — Wait for DHCP —
-  Serial.print("[ETH] DHCP");
-  while (ETH.localIP() == INADDR_NONE) {
-    Serial.print('.');
-    delay(200);
-  }
-  Serial.println();
-  Serial.printf("[ETH] IP: %s  Gateway: %s\n",
-    ETH.localIP().toString().c_str(),
-    ETH.gatewayIP().toString().c_str()
-  );
-  Serial.print("[ETH] Speed  : ");
-  Serial.print(ETH.linkSpeed());
-  Serial.print(" Mbps, Duplex: ");
-  Serial.println(ETH.fullDuplex() ? "FULL" : "HALF");
+        display_eth_status();  // Update display
+        break;
 
-  // — Setup AsyncWebServer to serve /www/ from SD —
-  server.serveStatic("/", SD_MMC, "/www/").setDefaultFile("index.html");
-  server.onNotFound([](AsyncWebServerRequest *req){
-    req->send(404, "text/plain", "Not found");
+      case ARDUINO_EVENT_ETH_DISCONNECTED:
+        ethLinkUp = false;
+        Serial.println("[ETH] Disconnected");
+
+        display_eth_status();  // Clear or update display
+        break;
+
+      default:
+        break;
+    }
+  });
+
+}
+
+void webserver_init() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(200, "text/plain", "Hello from ESP32-P4");
   });
   server.begin();
   Serial.println("[HTTP] AsyncWebServer started");
 }
 
-void loop() {
-  // nothing needed here!
+void spi_init() {
+  SPI.begin(OLED_CLK, /* MISO */ -1, OLED_MOSI, OLED_CS);
+  Serial.println("[SPI] bus initialized");
 }
+
+void display_init() {
+  display.begin();
+  display.fillScreen(SSD1351_BLACK);
+  display.setTextColor(SSD1351_WHITE);
+  display.setCursor(0, 0);
+  display.setTextSize(1);
+
+  display.printf("ESP32-P4 TEST\n\n");
+
+  display.printf("Flash: %.2f MB\n\n", flashSizeMB);
+  display.printf("FS: %.1f / %.1f MB\n\n", spiffsUsedMB, spiffsTotalMB);
+  display.printf("PSRAM: %.2f MB\n", psramSizeMB);
+
+  Serial.println("[Display] initialized");
+}
+
+void display_eth_status() {
+  display.setCursor(0, 70); // Position below previous text
+  display.setTextColor(SSD1351_WHITE, SSD1351_BLACK); // Overwrite previous text
+
+  if (ethLinkUp) {
+    display.print("IP: ");
+    display.println(ethIP);
+    display.printf("%d Mbps\n", ethSpeedMbps);
+  } else {
+    display.println("ETH: No Link");
+  }
+}
+

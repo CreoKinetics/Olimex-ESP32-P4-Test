@@ -15,7 +15,6 @@ This repository contains a modular test and integration suite for the **Olimex E
 - ✅ Async web server with root handler
 - ✅ OLED splash and diagnostics display
 - ✅ Serial debugging with structured messages
-- 🧪 Support for future expansion: RGB control, sensors, REST endpoints
 
 ---
 
@@ -87,23 +86,10 @@ Logs are available on the serial port (default: 115200 baud). Initial boot messa
 ```
 /src
   └── main.cpp               # Full modular init sequence
-/openocd-configs
-  └── board/esp32-p4.cfg     # Optional custom JTAG configs
 /boards
   └── default_16MB.csv       # Custom partition table (optional)
 platformio.ini               # PlatformIO config
 ```
-
----
-
-## 📈 Roadmap
-
-- [ ] RGB + CCT LED output calibration
-- [ ] JSON-based control over UART
-- [ ] Web UI with full diagnostics and tuning
-- [ ] CRMX/DMX integration for lighting control
-- [ ] Auto-calibration with color meter or internal sensor
-- [ ] Storage in binary LUT format for performance
 
 ---
 

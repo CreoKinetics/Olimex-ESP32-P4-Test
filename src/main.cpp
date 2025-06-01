@@ -7,9 +7,21 @@
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1351.h>
+#include <Arduino.h>
+#include <SPIFFS.h>
 
+
+<<<<<<< Updated upstream
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
+=======
+extern "C" {
+  #include "esp_psram.h"
+  #include "esp_spi_flash.h"
+  #include "esp_flash.h"          // IDF flash API
+  #include "esp_err.h"
+}
+>>>>>>> Stashed changes
 
 #include "esp_task_wdt.h"
 
@@ -47,6 +59,7 @@ bool ethLinkUp = false;
 Adafruit_SSD1351 display = Adafruit_SSD1351(SCREEN_WIDTH, SCREEN_HEIGHT, &SPI, OLED_CS, OLED_DC, OLED_RST);
 AsyncWebServer server(80);
 
+<<<<<<< Updated upstream
 void wait_for_serial_debug();
 void flash_init();
 void psram_init();
@@ -56,11 +69,117 @@ void spi_init();
 void display_init();
 void webserver_init();
 void display_eth_status();
+=======
+// ——— SPI / OLED PINS ———
+// PUEXT1
+#define OLED_MOSI  13
+#define OLED_CLK   14
+#define OLED_CS    15
+#define OLED_DC    16
+#define OLED_RST   17
+
+// ——— Adafruit SSD1351 instance ———
+Adafruit_SSD1351 display = Adafruit_SSD1351(
+  /* width */ 128,
+  /* height*/ 128,
+  /* spi */   &SPI,
+  /* cs */    OLED_CS,
+  /* dc */    OLED_DC,
+  /* rst */   OLED_RST
+);
+
+>>>>>>> Stashed changes
 
 void setup() {
   Serial.begin(115200);
 
+<<<<<<< Updated upstream
   esp_task_wdt_delete(NULL);  // Disable WDT for main task
+=======
+  Serial.println("[Boot] Flash test");
+
+  // Grab the default flash chip handle
+  esp_flash_t *chip = esp_flash_default_chip;
+  if (!chip) {
+    Serial.println("ERROR: no default flash chip");
+    return;
+  }
+
+  // 1) Read JEDEC ID
+  uint32_t jedec = 0;
+  esp_err_t err = esp_flash_read_id(chip, &jedec);
+  if (err == ESP_OK) {
+    Serial.printf("JEDEC ID : 0x%06X\n", jedec);
+  } else {
+    Serial.printf("esp_flash_read_id() failed: %d\n", err);
+  }
+
+  // 2) Query total size (note: uint32_t)
+  uint32_t flash_sz = 0;
+  err = esp_flash_get_size(chip, &flash_sz);
+  if (err == ESP_OK) {
+    Serial.printf("Flash size: %u bytes (%.2f MB)\n",
+                  flash_sz, flash_sz / 1024.0 / 1024.0);
+  } else {
+    Serial.printf("esp_flash_get_size() failed: %d\n", err);
+  }
+
+  // 3) Read the first 16 bytes
+  const size_t R = 16;
+  uint8_t buf[R];
+  err = esp_flash_read(chip, buf, /*address=*/0, /*length=*/R);
+  if (err == ESP_OK) {
+    Serial.print("First 16 bytes: ");
+    for (size_t i = 0; i < R; ++i) {
+      Serial.printf("%02X ", buf[i]);
+    }
+    Serial.println();
+  } else {
+    Serial.printf("esp_flash_read() failed: %d\n", err);
+  }
+
+  Serial.println("\n[FS Test]");
+
+  // 1) Mount SPIFFS, format if unformatted
+  if (!SPIFFS.begin(/*formatOnFail=*/true)) {
+    Serial.println("⚠️ SPIFFS mount failed!");
+    return;
+  }
+  Serial.println("✅ SPIFFS mounted");
+
+  // 2) Report capacity
+  size_t total = SPIFFS.totalBytes();
+  size_t used  = SPIFFS.usedBytes();
+  Serial.printf(" FS total: %u KB\n", total  / 1024);
+  Serial.printf(" FS used : %u KB\n", used   / 1024);
+
+  // 3) Write a tiny file
+  const char* path = "/hello.txt";
+  File f = SPIFFS.open(path, FILE_WRITE);
+  if (!f) {
+    Serial.println("❌ open for write failed");
+  } else {
+    f.printf("Hello from P4 @ %lu\n", millis());
+    f.close();
+    Serial.println("✍️ Wrote /hello.txt");
+  }
+
+  // 4) Read it back
+  f = SPIFFS.open(path, FILE_READ);
+  if (!f) {
+    Serial.println("❌ open for read failed");
+  } else {
+    Serial.print("📖 Content: ");
+    while (f.available()) {
+      Serial.write(f.read());
+    }
+    Serial.println();
+    f.close();
+  }
+
+  // — Init SPI once for both displays —
+  SPI.begin(OLED_CLK, /* MISO */ -1, OLED_MOSI, OLED_CS);
+>>>>>>> Stashed changes
 
   void wait_for_serial_debug();
 
